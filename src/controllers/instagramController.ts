@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { Request, Response } from 'express';
 import FormData from 'form-data';
-import { getSupabaseClient } from '../utils/supabase';
+import { WEBHOOK_VERIFICATION } from '../config';
+import { socketService } from '../utils/socket';
 
 /**
  * Instagram login
@@ -103,13 +104,33 @@ export const webhookGet = (req: Request, res: Response): void => {
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
-    if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
+    if (mode === 'subscribe' && token === WEBHOOK_VERIFICATION) {
         console.log('WEBHOOK_VERIFIED');
         res.status(200).send(challenge);
     } else {
         res.sendStatus(403);
     }
 };
+
+/**
+ * Fetch Instagram message information
+ * @description Fetches information about an Instagram message
+ * @url https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/conversations-api/#get-information-about-a-message
+ * 
+ * @param messageId - The ID of the message to fetch information for
+ * @param accessToken - The access token to use for the request
+ * @returns The information about the message, or null if an error occurs
+ */
+const fetchInstagramMessageInformation = async (messageId: string, accessToken: string): Promise<any> => {
+    try {
+        const response = await axios.get(`https://graph.instagram.com/v22.0/${messageId}?fields=id,created_time,from,to,message&access_token=${accessToken}`);
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching Instagram message information:', error);
+        return null;
+    }
+
+}
 
 /**
  * Instagram webhook
@@ -119,12 +140,44 @@ export const webhookGet = (req: Request, res: Response): void => {
  * @param req - express request
  * @param res - express response
  */
-export const webhookPost = (req: Request, res: Response): void => {
+export const webhookPost = async (req: Request, res: Response): Promise<void> => {
     try {
         const body = req.body;
         console.log('Received message:', JSON.stringify(body, null, 2));
         if (body.object === 'instagram') {
             console.log('Instagram message received:', JSON.stringify(body, null, 2));
+
+            // for loop for entry
+            for (const messages of body.entry) {
+
+                for (const msg of messages?.messaging) {
+
+                    // TODO: Fetch access token from the database and also save the message to the database
+                    const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
+
+                    const { from } = await fetchInstagramMessageInformation(msg.message.mid, accessToken).catch(err => {
+                        // handle error if necessary
+                    })
+
+                    socketService.emit('instagram_message', {
+                        message: {
+                            sender: msg.sender.id,
+                            recipient: msg.recipient.id,
+                            timestamp: msg.timestamp,
+                            content: msg.message.text
+                        },
+                        contact: {
+                            id: from?.id,
+                            username: from?.username
+                        }
+                    });
+                }
+
+            }
+
+
+
+
         }
         res.sendStatus(200);
     } catch (err) {

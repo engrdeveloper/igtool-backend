@@ -6,6 +6,8 @@ import instagramRoutes from './routes/instagramRoutes';
 const app = express();
 import { PORT } from './config';
 import morgan from 'morgan';
+import { socketService } from './utils/socket';
+
 
 app.use(bodyParser.json());
 
@@ -16,11 +18,14 @@ app.use('/instagram', instagramRoutes);
 
 // Load SSL certificate and key
 const sslOptions = {
-    key: fs.readFileSync('/server.key'),
-    cert: fs.readFileSync('/server.cert'),
+    key: fs.readFileSync('/home/sohaib/Desktop/Projects/igtool/igtool-backend/https/server.key'),
+    cert: fs.readFileSync('/home/sohaib/Desktop/Projects/igtool/igtool-backend/https/server.cert'),
 };
 
+const server = https.createServer(sslOptions, app);
+// Initialize socket.io with the HTTP server
+socketService.initialize(server);
 // Start HTTPS server
-https.createServer(sslOptions, app).listen(PORT, () => {
-    console.log(`🚀 Server running at https://localhost:${PORT}`);
+server.listen(PORT, () => {
+    console.log(`Server is running at: ${PORT}`);
 });
